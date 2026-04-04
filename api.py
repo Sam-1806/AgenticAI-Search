@@ -784,7 +784,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
       const sourcesHtml = sources.slice(0, 2).map(s => `
         <div class="source-item">
-          <a class="source-url" href="${s.url}" target="_blank" title="${s.url}">${s.url.replace(/^https?:\/\//, '').slice(0, 50)}${s.url.length > 50 ? '…' : ''}</a>
+          <a class="source-url" href="${s.url}" target="_blank" title="${s.url}">${s.url.replace(/^https?:[/][/]/, '').slice(0, 50)}${s.url.length > 50 ? '…' : ''}</a>
           ${s.evidence ? `<div class="evidence">"${s.evidence}"</div>` : ''}
         </div>
       `).join('');
