@@ -1,126 +1,130 @@
 # Agentic Search
 
-A production-quality pipeline that accepts a topic query, searches the web, scrapes the top results, and uses an LLM to extract structured, source-traceable entities — returned as clean JSON.
+A production-quality pipeline that accepts a topic query, searches the web, scrapes the top results, and uses an LLM to extract structured, source-traceable entities — returned as clean JSON with a beautiful web UI.
+
+---
+
+## Live Demo
+
+Run locally or deploy to Railway (see below).
 
 ---
 
 ## Quickstart
-
 ```bash
-# 1. Clone / unzip the project
-cd agentic_search
+# 1. Clone the repo
+git clone https://github.com/Sam-1806/AgenticAI-Search.git
+cd AgenticAI-Search
 
-# 2. Install dependencies (Python 3.11+ recommended)
+# 2. Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# 3. Set API keys
-export OPENAI_API_KEY="sk-..."
-export BRAVE_API_KEY="..."          # or SERPAPI_KEY if using SerpAPI
-export SEARCH_PROVIDER="brave"      # "brave" | "serpapi"
+# 4. Add API keys to .env file
+cp .env.example .env
+# Edit .env with your keys
 
-# 4. Run
+# 5. Run CLI
 python main.py "AI startups in healthcare"
 
-# Save output to a file
-python main.py "climate tech companies" --output results.json --num-results 10
+# Save output to file
+python main.py "climate tech companies" --output results.json
 
-# Disable cache (e.g. for fresh runs)
+# Disable cache
 python main.py "quantum computing startups" --no-cache
 ```
 
 ---
 
-## Optional: FastAPI Server
-
+## Web UI
 ```bash
-pip install fastapi uvicorn
 uvicorn api:app --host 0.0.0.0 --port 8000
-
-# Query
-curl -X POST http://localhost:8000/search \
-     -H "Content-Type: application/json" \
-     -d '{"query": "AI startups in healthcare", "num_results": 5}'
 ```
+
+Then open **http://localhost:8000** in your browser.
+
+Features:
+- Search box with example queries
+- Live pipeline status indicator
+- Entity cards with attributes and source evidence
+- Toggle between card view and raw JSON
+- Download results as JSON
 
 ---
 
-## Configuration
+## API Keys Required
 
-All settings live in `config.py` and are overridable via environment variables:
-
-| Variable | Default | Description |
+| Key | Where to get it | Cost |
 |---|---|---|
-| `OPENAI_API_KEY` | — | Required |
-| `BRAVE_API_KEY` | — | Required if `SEARCH_PROVIDER=brave` |
-| `SERPAPI_KEY` | — | Required if `SEARCH_PROVIDER=serpapi` |
-| `SEARCH_PROVIDER` | `brave` | `brave` or `serpapi` |
+| `GROQ_API_KEY` | https://console.groq.com | Free |
+| `SERPAPI_KEY` | https://serpapi.com | 100 free searches/month |
 
-To change tuneable parameters (max pages, LLM model, dedup threshold), edit the dataclass fields in `config.py` directly.
-
----
-
-## Output Format
-
-```json
-[
-  {
-    "name": "Flatiron Health",
-    "category": "startup",
-    "description": "Oncology-focused health tech company...",
-    "website": "https://flatiron.com",
-    "attributes": {
-      "founded_year": 2012,
-      "headquarters": "New York, NY",
-      "funding": "$175M"
-    },
-    "sources": [
-      {
-        "url": "https://example.com/article",
-        "evidence": "Flatiron Health raised $175M to expand its cancer data platform..."
-      }
-    ]
-  }
-]
+Create a `.env` file in the project root:
 ```
-
-Each entity includes one or more `sources`, each with:
-- `url` — the page it was extracted from
-- `evidence` — a verbatim snippet from that page
+GROQ_API_KEY=your-groq-key
+SERPAPI_KEY=your-serpapi-key
+SEARCH_PROVIDER=serpapi
+```
 
 ---
 
 ## Architecture
-
 ```
 main.py          Orchestrates the pipeline; CLI entry point
 config.py        All settings in one place (env vars + defaults)
-search.py        Web search abstraction (Brave / SerpAPI)
+search.py        Web search abstraction (SerpAPI)
 scraper.py       Async concurrent page fetching + HTML cleaning
-extractor.py     OpenAI-based structured entity extraction
+extractor.py     Groq/Llama-based structured entity extraction
 aggregator.py    Fuzzy deduplication and entity merging
 schema.py        Pydantic models: Entity, Source, ExtractionResult
-api.py           (bonus) FastAPI REST endpoint
+api.py           FastAPI backend + single-page web UI
 ```
 
 ### Data flow
-
 ```
 Query
   │
   ▼
-search.py ──► top N URLs
+search.py ──► top N URLs (SerpAPI)
   │
   ▼
-scraper.py ──► cleaned page text (async, cached)
+scraper.py ──► cleaned page text (async aiohttp, file-cached)
   │
   ▼
-extractor.py ──► raw Entity list per page (via OpenAI)
+extractor.py ──► raw Entity list per page (Groq / Llama 3.1)
   │
   ▼
 aggregator.py ──► deduplicated, merged Entity list
   │
   ▼
-JSON output
+JSON output + Web UI
+```
+
+---
+
+## Output Format
+```json
+[
+  {
+    "name": "Abridge",
+    "category": "startup",
+    "description": "Transforms patient-clinician conversations into AI-generated clinical notes.",
+    "website": "https://www.abridge.com",
+    "attributes": {
+      "industry": "healthcare",
+      "product": "AI platform for clinical conversations"
+    },
+    "sources": [
+      {
+        "url": "https://www.abridge.com/",
+        "evidence": "Abridge transforms patient-clinician conversations into contextually aware, clinically useful, and billable AI-generated notes."
+      }
+    ]
+  }
+]
 ```
 
 ---
@@ -128,26 +132,29 @@ JSON output
 ## Design Trade-offs
 
 ### Why per-page extraction?
-Sending all page content to one prompt would exceed context limits and make attribution harder. Per-page extraction keeps prompts short, costs predictable, and makes it trivial to parallelise later.
+Sending all page content in one prompt would exceed context limits and make source attribution impossible. Per-page extraction keeps prompts short, costs predictable, and attribution clean.
 
-### Why fuzzy name matching vs embeddings?
-`rapidfuzz.token_sort_ratio` covers the vast majority of real duplicate cases (word-order variants, minor typos) at zero API cost and with deterministic behaviour. Embedding-based dedup would be more semantically powerful but adds latency, cost, and an extra API dependency. At the scale of 5–10 pages / 50 entities per run, fuzzy matching is the right call.
+### Why Groq + Llama 3.1?
+Groq is free with no credit card required, and runs Llama 3.1 at extremely high speed. For a research prototype this is the ideal balance of cost, speed, and quality. Swapping to GPT-4o or Claude is a one-line change in `config.py`.
 
-### Why `gpt-4o-mini` as default?
-It's ~20× cheaper than GPT-4o with only a modest quality drop for extraction tasks. Swapping to `gpt-4o` is a one-line change in `config.py`.
+### Why SerpAPI over Brave?
+Both work. SerpAPI's free tier (100 searches/month) was sufficient for development and evaluation. Brave Search is a drop-in alternative via `SEARCH_PROVIDER=brave`.
 
-### Why not parallel extraction?
-The bottleneck is network I/O (already async in the scraper). LLM calls are fast enough sequentially for ≤10 pages. Adding async extraction would complicate error handling without a meaningful speedup.
+### Why fuzzy matching over embeddings for dedup?
+`rapidfuzz.token_sort_ratio` handles the vast majority of real duplicates (word-order variants, minor typos) at zero API cost and with deterministic behavior. Embedding-based dedup would be more semantically powerful but adds latency, cost, and an extra dependency. At 5–10 pages / ~50 entities per run, fuzzy matching is the right call.
 
 ### Why file-based caching?
-Minimal complexity — no Redis dependency, works offline after the first run, and is easy to inspect. For a production system, Redis or a proper KV store would be preferred.
+No Redis dependency, zero setup, works offline after the first run, and easy to inspect. For a production system, Redis or a proper KV store would be preferred.
+
+### Why async scraping but sequential LLM calls?
+The bottleneck is network I/O — already handled with async aiohttp. LLM calls are fast enough sequentially for ≤10 pages. Async extraction would complicate error handling without meaningful speedup at this scale.
 
 ---
 
 ## Limitations
 
-- **Dynamic / JS-rendered pages**: `aiohttp` + BeautifulSoup cannot execute JavaScript. Sites like React SPAs will return sparse content. A Playwright-based scraper would fix this.
-- **Paywalled content**: Paywalled pages return preview text only.
-- **LLM hallucination**: The prompt instructs the model to stay grounded, and `evidence_text` provides a check — but the model can still occasionally fabricate. Manual spot-checking is recommended for high-stakes use.
-- **Rate limits**: Heavy use (>50 queries/hour) may hit OpenAI or search API rate limits. The retry logic handles transient issues, but sustained load requires a queue.
-- **Dedup precision**: Fuzzy string matching works well for company names but may over-merge similar-sounding entities (e.g. two different startups with similar names in the same space).
+- **JS-rendered pages**: aiohttp + BeautifulSoup can't execute JavaScript. React SPAs return sparse content. Playwright would fix this.
+- **Paywalled content**: Only preview text is accessible.
+- **LLM hallucination**: The prompt instructs grounding in source text and evidence snippets provide a check, but occasional fabrication is possible.
+- **Rate limits**: Groq's free tier throttles at ~30 req/min. The retry logic handles this automatically but adds latency on large queries.
+- **Dedup precision**: Fuzzy string matching may over-merge similarly named but distinct entities.
