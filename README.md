@@ -6,7 +6,7 @@ A production-quality pipeline that accepts a topic query, searches the web, scra
 
 ## Live Demo
 
-Run locally or deploy to Railway (see below).
+Link- https://web-production-fd58c.up.railway.app
 
 ---
 
@@ -135,7 +135,7 @@ JSON output + Web UI
 Sending all page content in one prompt would exceed context limits and make source attribution impossible. Per-page extraction keeps prompts short, costs predictable, and attribution clean.
 
 ### Why Groq + Llama 3.1?
-Groq is free with no credit card required, and runs Llama 3.1 at extremely high speed. For a research prototype this is the ideal balance of cost, speed, and quality. Swapping to GPT-4o or Claude is a one-line change in `config.py`.
+Groq is free with no credit card required, and runs Llama 3.1 at extremely high speed. For this prototype, this is the ideal balance of cost, speed, and quality. Swapping to GPT-4o or Claude is a one-line change in `config.py`.
 
 ### Why SerpAPI over Brave?
 Both work. SerpAPI's free tier (100 searches/month) was sufficient for development and evaluation. Brave Search is a drop-in alternative via `SEARCH_PROVIDER=brave`.
