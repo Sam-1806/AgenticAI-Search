@@ -32,6 +32,8 @@ class Entity(BaseModel):
     website: str | None = None
     attributes: dict[str, Any] = Field(default_factory=dict)
     sources: list[Source] = Field(default_factory=list)
+    confidence: float = 1.0
+    merge_reason: str | None = None
 
     def merge(self, other: "Entity") -> "Entity":
         """

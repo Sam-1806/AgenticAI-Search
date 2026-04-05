@@ -26,12 +26,14 @@ from rapidfuzz import fuzz
 from config import config
 from schema import Entity
 
+
 logger = logging.getLogger(__name__)
 
 
 def _normalise(name: str) -> str:
     """Lowercase and strip punctuation for stable comparison."""
     return re.sub(r"[^\w\s]", "", name.lower()).strip()
+
 
 
 def _similarity(a: str, b: str) -> float:
@@ -66,10 +68,16 @@ def deduplicate(entities: list[Entity]) -> list[Entity]:
         for i, canon in enumerate(canonical):
             sim = _similarity(entity.name, canon.name)
             if sim >= config.dedup_threshold:
-                canonical[i] = canon.merge(entity)
+                merge_reason = (
+                    f"Matched on name similarity ({sim:.2f}) "
+                    f"across {len(canon.sources) + len(entity.sources)} sources"
+                )
+                merged_entity = canon.merge(entity)
+                merged_entity.merge_reason = merge_reason
+                canonical[i] = merged_entity
                 logger.debug(
-                    "Merged %r into %r (similarity=%.2f)",
-                    entity.name, canon.name, sim,
+                    "Merged %r into %r — %s",
+                    entity.name, canon.name, merge_reason,
                 )
                 merged = True
                 break

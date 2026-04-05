@@ -119,3 +119,79 @@ def extract_entities(query: str, url: str, text: str) -> list[Entity]:
     entities = _parse_entities(raw, source_url=url)
     logger.info("Extracted %d entities from %s", len(entities), url)
     return entities
+
+def reflect_entities(query: str, entities: list[Entity]) -> list[Entity]:
+    """
+    Second LLM pass — removes low-confidence or hallucinated entities
+    and improves descriptions. Returns a filtered, improved list.
+    """
+    if not entities:
+        return []
+
+    import json as _json
+
+    # Serialize entities for the prompt
+    entity_list = [
+        {
+            "name": e.name,
+            "category": e.category,
+            "description": e.description,
+            "evidence": [s.evidence for s in e.sources if s.evidence],
+        }
+        for e in entities
+    ]
+
+    prompt = f"""You are a research quality-control agent.
+
+Given a topic query and a list of extracted entities, your job is to:
+1. Remove any entities that are NOT directly relevant to the query
+2. Remove generic concepts, vague terms, or obvious hallucinations
+3. Assign a confidence score (0.0 to 1.0) to each remaining entity based on how well the evidence supports it
+4. Improve descriptions if they are vague, but only using information present in the evidence
+
+Query: {query}
+
+Entities:
+{_json.dumps(entity_list, indent=2)}
+
+Return ONLY a JSON object with key "entities" — an array of objects, each with:
+  name        (string) — must match exactly from input
+  confidence  (float)  — 0.0 to 1.0
+  description (string) — improved or original description
+
+Only include entities you are confident about. Remove noise."""
+
+    logger.info("Running reflection pass on %d entities...", len(entities))
+    try:
+        raw = _call_groq_with_retry(prompt)
+        data = _json.loads(raw)
+    except Exception as exc:
+        logger.warning("Reflection pass failed: %s — returning original entities", exc)
+        return entities
+
+    # Build a lookup by name
+    reflection_map = {
+        r["name"]: r
+        for r in data.get("entities", [])
+        if "name" in r
+    }
+
+    refined: list[Entity] = []
+    for entity in entities:
+        ref = reflection_map.get(entity.name)
+        if ref is None:
+            logger.debug("Reflection removed entity: %r", entity.name)
+            continue
+        entity.confidence = float(ref.get("confidence", 1.0))
+        if ref.get("description"):
+            entity.description = ref["description"]
+        refined.append(entity)
+
+    # Sort by confidence descending
+    refined.sort(key=lambda e: e.confidence, reverse=True)
+
+    logger.info(
+        "Reflection pass: %d → %d entities",
+        len(entities), len(refined),
+    )
+    return refined

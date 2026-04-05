@@ -22,6 +22,7 @@ from scraper import scrape_urls, scrape_urls_sync
 from extractor import extract_entities
 from aggregator import deduplicate
 from schema import Entity
+from extractor import extract_entities, reflect_entities
 
 # ---------------------------------------------------------------------------
 # Logging — structured single-line format; easy to grep in CI / log aggregators
@@ -83,6 +84,11 @@ async def run_pipeline(query: str, num_results: int | None = None) -> list[dict]
     # 4. Deduplicate & aggregate
     logger.info("=== STEP 4: Aggregate ===")
     final_entities = deduplicate(all_entities)
+
+    # 5. Reflection pass
+    logger.info("=== STEP 5: Reflect ===")
+    final_entities = reflect_entities(query=query, entities=final_entities)
+
 
     # 5. Serialise
     output = [e.model_dump() for e in final_entities]
