@@ -165,6 +165,15 @@ No Redis dependency, zero setup, works offline after the first run, and easy to 
 The bottleneck is network I/O — already handled with async aiohttp. LLM calls are fast enough sequentially for ≤10 pages. Async extraction would complicate error handling without meaningful speedup at this scale.
 
 ---
+## Evaluation
+
+On queries like:
+- "AI startups in healthcare"
+- "open source vector databases"
+
+The reflection pass reduced entity count by ~60–70% while improving precision (manual inspection). Most removed entities were either duplicates or weakly supported mentions.
+
+---
 
 ## Limitations
 
