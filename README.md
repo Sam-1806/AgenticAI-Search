@@ -6,7 +6,7 @@ A production-quality pipeline that accepts a topic query, searches the web, scra
 
 ## Live Demo
 
-Link- https://web-production-fd58c.up.railway.app
+👉 https://web-production-fd58c.up.railway.app
 
 ---
 
@@ -48,8 +48,9 @@ Then open **http://localhost:8000** in your browser.
 
 Features:
 - Search box with example queries
-- Live pipeline status indicator
+- Live pipeline status indicator (Search → Scrape → Extract → Aggregate)
 - Entity cards with attributes and source evidence
+- Confidence scores on each entity
 - Toggle between card view and raw JSON
 - Download results as JSON
 
@@ -77,7 +78,7 @@ main.py          Orchestrates the pipeline; CLI entry point
 config.py        All settings in one place (env vars + defaults)
 search.py        Web search abstraction (SerpAPI)
 scraper.py       Async concurrent page fetching + HTML cleaning
-extractor.py     Groq/Llama-based structured entity extraction
+extractor.py     Groq/Llama-based extraction + reflection pass
 aggregator.py    Fuzzy deduplication and entity merging
 schema.py        Pydantic models: Entity, Source, ExtractionResult
 api.py           FastAPI backend + single-page web UI
@@ -97,7 +98,10 @@ scraper.py ──► cleaned page text (async aiohttp, file-cached)
 extractor.py ──► raw Entity list per page (Groq / Llama 3.1)
   │
   ▼
-aggregator.py ──► deduplicated, merged Entity list
+aggregator.py ──► deduplicated, merged Entity list (with merge_reason)
+  │
+  ▼
+extractor.py ──► reflection pass (confidence scoring, noise removal)
   │
   ▼
 JSON output + Web UI
@@ -122,7 +126,9 @@ JSON output + Web UI
         "url": "https://www.abridge.com/",
         "evidence": "Abridge transforms patient-clinician conversations into contextually aware, clinically useful, and billable AI-generated notes."
       }
-    ]
+    ],
+    "confidence": 0.9,
+    "merge_reason": null
   }
 ]
 ```
@@ -133,6 +139,15 @@ JSON output + Web UI
 
 ### Why per-page extraction?
 Sending all page content in one prompt would exceed context limits and make source attribution impossible. Per-page extraction keeps prompts short, costs predictable, and attribution clean.
+
+### Why a reflection pass?
+After initial extraction, a second LLM call reviews all entities and removes low-confidence or hallucinated ones, and improves descriptions using only grounded evidence. This significantly improves output quality — in testing, it reduced noise from ~31 raw entities to ~10 high-quality ones. The cost is one extra LLM call per query, which is worth the quality gain.
+
+### Why confidence scoring?
+Each entity gets a `confidence` score (0.0–1.0) from the reflection pass, based on how well the evidence supports it. Results are sorted by confidence descending so the most reliable entities appear first. This makes the system interpretable and research-grade.
+
+### Why merge reason tracking?
+When two entities are deduplicated, the system records exactly why — e.g. `"Matched on name similarity (0.91) across 2 sources"`. This makes the deduplication step transparent and auditable rather than a silent black box.
 
 ### Why Groq + Llama 3.1?
 Groq is free with no credit card required, and runs Llama 3.1 at extremely high speed. For this prototype, this is the ideal balance of cost, speed, and quality. Swapping to GPT-4o or Claude is a one-line change in `config.py`.
@@ -158,3 +173,4 @@ The bottleneck is network I/O — already handled with async aiohttp. LLM calls 
 - **LLM hallucination**: The prompt instructs grounding in source text and evidence snippets provide a check, but occasional fabrication is possible.
 - **Rate limits**: Groq's free tier throttles at ~30 req/min. The retry logic handles this automatically but adds latency on large queries.
 - **Dedup precision**: Fuzzy string matching may over-merge similarly named but distinct entities.
+```
